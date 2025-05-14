@@ -52,7 +52,7 @@ def load_data():
 survey_df, campnets_df, lostnets_df = load_data()
 
 # Title
-st.title("🦟 VESTERGAARD LLIN Durability Study")
+st.title("🦟 Vestergaard LLIN Durability Study")
 
 # Sidebar
 with st.sidebar:
@@ -84,7 +84,155 @@ def filter_data(df):
 
 filtered_survey = filter_data(survey_df)
 
+# Calculate metrics first
+total_households = len(filtered_survey)
+# Calculate unique villages based on combination of village and parish
+total_villages = filtered_survey.groupby(['selected_village', 'selected_parish']).ngroups
+total_campaign_nets = len(campnets_df[campnets_df['hhid'].isin(filtered_survey['hhid'])])
+total_lost_nets = len(lostnets_df[lostnets_df['hhid'].isin(filtered_survey['hhid'])])
+lost_nets_percentage = (total_lost_nets / (total_lost_nets + total_campaign_nets)) * 100 if (total_lost_nets + total_campaign_nets) > 0 else 0
+
 # KPIs
+col1, col2, col3, col4 = st.columns(4)
+
+with col1:
+    st.metric(
+        "Total Households Visited", 
+        f"{total_households:,}",
+        help="Number of households surveyed"
+    )
+
+with col2:
+    st.metric(
+        "Villages Visited", 
+        f"{total_villages:,}",
+        help="Number of unique villages visited during the survey (differentiated by parish when names are identical)"
+    )
+
+with col3:
+    st.metric(
+        "Campaign Nets Tagged", 
+        f"{total_campaign_nets:,}",
+        help="Total number of nets tagged during the campaign"
+    )
+
+with col4:
+    st.metric(
+        "Nets Lost (%)", 
+        f"{lost_nets_percentage:.1f}%",
+        help="Percentage of nets that were lost, damaged, or given away"
+    )
+
+st.markdown("---")
+
+# Add Location Summary Section
+st.header("Location Coverage Summary")
+
+# Create three columns for district, subcounty, and village summaries
+loc_col1, loc_col2 = st.columns(2)
+
+with loc_col1:
+    st.subheader("District Coverage")
+    
+    # District summary
+    district_summary = survey_df['selected_district'].value_counts().reset_index()
+    district_summary.columns = ['District', 'Number of Households']
+    
+    # District pie chart
+    fig_district = px.pie(
+        district_summary,
+        values='Number of Households',
+        names='District',
+        title='Household Distribution by District',
+        hole=0.4
+    )
+    fig_district.update_traces(textposition='inside', textinfo='percent+label')
+    st.plotly_chart(fig_district, use_container_width=True, key="district_pie")
+    
+    # District frequency table
+    st.markdown("#### District Frequency Table")
+    st.dataframe(
+        district_summary.style.background_gradient(cmap='Blues'),
+        use_container_width=True
+    )
+
+with loc_col2:
+    st.subheader("Subcounty Coverage")
+    
+    # Subcounty summary
+    subcounty_summary = survey_df.groupby(['selected_district', 'selected_subcounty']).size().reset_index()
+    subcounty_summary.columns = ['District', 'Subcounty', 'Number of Households']
+    
+    # Subcounty pie chart
+    fig_subcounty = px.pie(
+        subcounty_summary,
+        values='Number of Households',
+        names='Subcounty',
+        title='Household Distribution by Subcounty',
+        hole=0.4
+    )
+    fig_subcounty.update_traces(textposition='inside', textinfo='percent+label')
+    st.plotly_chart(fig_subcounty, use_container_width=True, key="subcounty_pie")
+    
+    # Subcounty frequency table
+    st.markdown("#### Subcounty Frequency Table")
+    st.dataframe(
+        subcounty_summary.style.background_gradient(cmap='Blues'),
+        use_container_width=True
+    )
+
+# Village section in full width
+st.subheader("Village Coverage")
+
+# Village summary - including parish to differentiate villages
+village_summary = filtered_survey.groupby(['selected_district', 'selected_subcounty', 'selected_parish', 'selected_village']).size().reset_index()
+village_summary.columns = ['District', 'Subcounty', 'Parish', 'Village', 'Number of Households']
+
+# Create a combined village name with parish for display
+village_summary['Village_Display'] = village_summary.apply(
+    lambda x: f"{x['Village']} ({x['Parish']})" if x['Village'] == 'PAROMO' else x['Village'],
+    axis=1
+)
+
+# Verify total villages matches
+assert total_villages == len(village_summary), "Village count mismatch between KPI and frequency table"
+
+# Village bar chart
+fig_village = px.bar(
+    village_summary,
+    x='Village_Display',
+    y='Number of Households',
+    title=f'Household Distribution by Village (Total Villages: {total_villages})',
+    color='Number of Households',
+    color_continuous_scale='Blues',
+    labels={'Village_Display': 'Village (Parish)'}
+)
+fig_village.update_layout(
+    xaxis_tickangle=-45,
+    height=500  # Make the chart taller
+)
+st.plotly_chart(fig_village, use_container_width=True, key="village_bar")
+
+# Village frequency table
+st.markdown("#### Village Frequency Table")
+# Add percentage calculation
+village_summary['Percentage'] = (village_summary['Number of Households'] / village_summary['Number of Households'].sum() * 100).round(1)
+village_summary['Percentage'] = village_summary['Percentage'].astype(str) + '%'
+
+# Reorder columns for better readability
+village_summary = village_summary[['District', 'Subcounty', 'Parish', 'Village', 'Number of Households', 'Percentage']]
+
+# Display the table with custom width
+st.dataframe(
+    village_summary.style.background_gradient(cmap='Blues', subset=['Number of Households']),
+    use_container_width=True,
+    height=400  # Set a fixed height for the table
+)
+
+# Update the total villages metric to reflect the correct count
+total_villages = len(village_summary)
+
+# Update the villages metric in the KPI section
 col1, col2, col3, col4 = st.columns(4)
 
 with col1:
@@ -96,19 +244,18 @@ with col1:
     )
 
 with col2:
-    total_villages = len(filtered_survey['selected_village'].unique()) if 'selected_village' in filtered_survey.columns else 0
     st.metric(
         "Villages Visited", 
         f"{total_villages:,}",
-        help="Number of unique villages visited during the survey"
+        help="Number of unique villages visited during the survey (differentiated by parish when names are identical)"
     )
 
 with col3:
     total_campaign_nets = len(campnets_df[campnets_df['hhid'].isin(filtered_survey['hhid'])])
     st.metric(
-        "Campaign Nets Distributed", 
+        "Campaign Nets Tagged", 
         f"{total_campaign_nets:,}",
-        help="Total number of nets distributed through the campaign"
+        help="Total number of nets tagged during the campaign"
     )
 
 with col4:
@@ -135,205 +282,187 @@ with col1:
             y='households',
             title='Household Distribution by Village',
             labels={'households': 'Number of Households', 'selected_village': 'Village'},
-            color='households'
+            color='households',
+            color_continuous_scale='Blues'
         )
         fig.update_layout(xaxis_tickangle=-45)
-        st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(fig, use_container_width=True, key="village_dist_bar")
     else:
         st.warning("Village data not available in the survey dataset")
 
 with col2:
-    st.subheader("Net Loss Reasons")
-    if 'netlong' in lostnets_df.columns:
-        loss_reasons = lostnets_df[lostnets_df['hhid'].isin(filtered_survey['hhid'])]['netlong'].value_counts()
-        fig = px.pie(
-            values=loss_reasons.values,
-            names=loss_reasons.index,
-            title='Reasons for Net Loss',
-            hole=0.4
-        )
-        st.plotly_chart(fig, use_container_width=True)
-    else:
-        st.warning("Net loss reason data not available")
-
-# Net Usage Analysis
-st.subheader("Net Usage and Condition")
-col1, col2 = st.columns(2)
-
-with col1:
-    if 'holesever' in campnets_df.columns:
-        net_condition = campnets_df[campnets_df['hhid'].isin(filtered_survey['hhid'])]['holesever'].value_counts()
-        fig = px.bar(
-            x=net_condition.index,
-            y=net_condition.values,
-            title='Net Condition Assessment',
-            labels={'x': 'Condition', 'y': 'Number of Nets'},
-            color=net_condition.values
-        )
-        st.plotly_chart(fig, use_container_width=True)
-    else:
-        st.warning("Net condition data not available")
-
-with col2:
-    if 'placenet' in campnets_df.columns:
-        net_placement = campnets_df[campnets_df['hhid'].isin(filtered_survey['hhid'])]['placenet'].value_counts()
-        fig = px.pie(
-            values=net_placement.values,
-            names=net_placement.index,
-            title='Net Placement in Households',
-            hole=0.4
-        )
-        st.plotly_chart(fig, use_container_width=True)
-    else:
-        st.warning("Net placement data not available")
-
-# Data Tables
-st.subheader("Detailed Data")
-tabs = st.tabs(["Survey Data", "Campaign Nets", "Lost Nets"])
-
-with tabs[0]:
-    survey_columns = ['hhid']
-    if 'selected_district' in filtered_survey.columns:
-        survey_columns.append('selected_district')
-    if 'selected_subcounty' in filtered_survey.columns:
-        survey_columns.append('selected_subcounty')
-    if 'selected_village' in filtered_survey.columns:
-        survey_columns.append('selected_village')
-    if 'numhhmembers' in filtered_survey.columns:
-        survey_columns.append('numhhmembers')
-    if 'hhnets' in filtered_survey.columns:
-        survey_columns.append('hhnets')
-    if 'hhnetsnum' in filtered_survey.columns:
-        survey_columns.append('hhnetsnum')
+    # Filter campnets for the selected households
+    filtered_campnets = campnets_df[campnets_df['hhid'].isin(filtered_survey['hhid'])]
     
-    st.dataframe(filtered_survey[survey_columns], use_container_width=True)
+    if 'brand' in filtered_campnets.columns:
+        st.subheader("Net Brand Distribution")
+        # Create brand summary
+        brand_summary = filtered_campnets['brand'].value_counts().reset_index()
+        brand_summary.columns = ['Brand', 'Number of Nets']
+        
+        # Create pie chart for brand distribution
+        fig_brand = px.pie(
+            brand_summary,
+            values='Number of Nets',
+            names='Brand',
+            title='Net Brand Distribution',
+            hole=0.4,
+            color_discrete_sequence=['#1f77b4', '#ff7f0e']  # Blue and Orange colors
+        )
+        fig_brand.update_traces(textposition='inside', textinfo='percent+label')
+        st.plotly_chart(fig_brand, use_container_width=True, key="brand_pie")
+        
+        # Add brand frequency table below the chart
+        st.markdown("##### Brand Frequency Table")
+        # Add percentage column
+        brand_summary['Percentage'] = (brand_summary['Number of Nets'] / brand_summary['Number of Nets'].sum() * 100).round(1)
+        brand_summary['Percentage'] = brand_summary['Percentage'].astype(str) + '%'
+        
+        # Display the frequency table with styling
+        st.dataframe(
+            brand_summary.style.background_gradient(cmap='Blues', subset=['Number of Nets']),
+            use_container_width=True
+        )
+        
+        # Add total row
+        st.markdown(f"**Total Nets: {brand_summary['Number of Nets'].sum():,}**")
+    else:
+        st.warning("Brand information not available in the dataset")
 
-with tabs[1]:
-    campnet_columns = ['hhid']
-    if 'netnum_001' in campnets_df.columns:
-        campnet_columns.append('netnum_001')
-    if 'brand' in campnets_df.columns:
-        campnet_columns.append('brand')
-    if 'netcampaign' in campnets_df.columns:
-        campnet_columns.append('netcampaign')
-    if 'netid' in campnets_df.columns:
-        campnet_columns.append('netid')
-    if 'placenet' in campnets_df.columns:
-        campnet_columns.append('placenet')
-    if 'holesever' in campnets_df.columns:
-        campnet_columns.append('holesever')
+# Add Nets Lost Distribution Section
+st.markdown("---")
+st.header("Nets Lost Distribution")
+lost_col1, lost_col2 = st.columns(2)
+
+with lost_col1:
+    st.subheader("Nets Lost vs Active")
+    # Create a doughnut chart for nets lost percentage
+    fig = go.Figure(data=[go.Pie(
+        labels=['Lost Nets', 'Active Nets'],
+        values=[total_lost_nets, total_campaign_nets - total_lost_nets],
+        hole=0.7,
+        marker_colors=['#FF9999', '#99FF99']
+    )])
+    fig.update_layout(
+        title='Nets Lost vs Active Nets',
+        annotations=[dict(text=f'{lost_nets_percentage:.1f}%', x=0.5, y=0.5, font_size=20, showarrow=False)]
+    )
+    st.plotly_chart(fig, use_container_width=True, key="nets_lost_donut")
+
+with lost_col2:
+    st.subheader("Lost Nets Summary")
+    # Create summary table for lost nets
+    lost_summary = pd.DataFrame({
+        'Category': ['Lost Nets', 'Active Nets', 'Total Nets'],
+        'Count': [
+            total_lost_nets,
+            total_campaign_nets - total_lost_nets,
+            total_campaign_nets
+        ],
+        'Percentage': [
+            f"{lost_nets_percentage:.1f}%",
+            f"{100 - lost_nets_percentage:.1f}%",
+            "100%"
+        ]
+    })
     
     st.dataframe(
-        campnets_df[campnets_df['hhid'].isin(filtered_survey['hhid'])][campnet_columns],
+        lost_summary.style.background_gradient(cmap='RdYlGn_r', subset=['Count']),
         use_container_width=True
     )
 
-with tabs[2]:
-    lostnet_columns = ['hhid']
-    if 'netnum' in lostnets_df.columns:
-        lostnet_columns.append('netnum')
-    if 'netlong' in lostnets_df.columns:
-        lostnet_columns.append('netlong')
-    if 'hpnnet' in lostnets_df.columns:
-        lostnet_columns.append('hpnnet')
-    if 'nkpnet' in lostnets_df.columns:
-        lostnet_columns.append('nkpnet')
-    
-    st.dataframe(
-        lostnets_df[lostnets_df['hhid'].isin(filtered_survey['hhid'])][lostnet_columns],
-        use_container_width=True
-    )
-
-# Data Source Information
-with st.expander("Data Source and Methodology"):
-    st.markdown("""
-    ### Data Sources
-    - **Survey Data**: Household-level information including location, number of members, and net ownership
-    - **Campaign Nets**: Detailed information about nets distributed during the campaign
-    - **Lost Nets**: Tracking of nets that were lost, damaged, or given away
-    
-    ### Methodology
-    - Data is collected through household surveys
-    - Net loss percentage is calculated as: (Lost Nets) / (Lost Nets + Campaign Nets) × 100
-    - Household coverage considers both distributed and lost nets
-    
-    ### Notes
-    - Some households may have multiple nets
-    - Net condition is assessed based on physical inspection
-    - Lost nets include those that were given away, damaged, or stolen
-    """)
+st.markdown("---")
 
 # Map visualization
 st.subheader("Net Distribution Coverage Map")
-if 'selected_district' in survey_df.columns:
-    # Count households per district
-    coverage_data = survey_df.groupby('selected_district').agg({
-        'hhid': 'count'  # Count households per district
-    }).reset_index()
-    coverage_data.rename(columns={'hhid': 'total_households'}, inplace=True)
-    
-    # Create a mapping of household IDs to districts
-    hhid_to_district = survey_df.set_index('hhid')['selected_district'].to_dict()
-    
-    # Count nets per district
-    district_nets = pd.DataFrame()
-    if not campnets_df.empty:
-        # Map districts to campaign nets using the household ID
-        campnets_df['selected_district'] = campnets_df['hhid'].map(hhid_to_district)
-        district_nets = campnets_df.groupby('selected_district').size().reset_index(name='total_nets')
-    
-    # Merge the data
-    if not district_nets.empty:
-        coverage_data = coverage_data.merge(district_nets, on='selected_district', how='left')
-        coverage_data['total_nets'] = coverage_data['total_nets'].fillna(0)
-        coverage_data['coverage_ratio'] = coverage_data['total_nets'] / coverage_data['total_households']
-    else:
-        coverage_data['total_nets'] = 0
-        coverage_data['coverage_ratio'] = 0
-    
-    # Create a simple map centered on Uganda
-    m = folium.Map(location=[1.3733, 32.2903], zoom_start=7)  # Uganda's approximate center
-    
-    # Add circles for each district
-    for idx, row in coverage_data.iterrows():
-        # Create a spread around Uganda's center
-        lat_offset = np.random.uniform(-1, 1)
-        lon_offset = np.random.uniform(-1, 1)
+if 'gpsloc' in survey_df.columns:
+    try:
+        # Extract latitude and longitude from gpsloc (taking only first two values)
+        survey_df[['latitude', 'longitude']] = survey_df['gpsloc'].str.split(expand=True).iloc[:, :2].astype(float)
         
-        # Calculate circle radius (minimum size for visibility)
-        radius = max(row['coverage_ratio'] * 50000, 20000)
+        # Create a map centered on the mean coordinates
+        center_lat = survey_df['latitude'].mean()
+        center_lon = survey_df['longitude'].mean()
+        m = folium.Map(location=[center_lat, center_lon], zoom_start=10)
+
+        # Create a legend using Folium's HTML class
+        legend = folium.Element("""
+            <div class="legend" style="
+                position: absolute;
+                bottom: 30px;
+                right: 10px;
+                z-index: 9999;
+                background-color: white;
+                padding: 10px;
+                border: 2px solid rgba(0,0,0,0.2);
+                border-radius: 4px;
+                font-family: Arial, sans-serif;
+                ">
+                <div style="text-align: center; margin-bottom: 5px;">
+                    <b>Legend</b>
+                </div>
+                <div style="margin-bottom: 5px;">
+                    <span style="display: inline-block; width: 12px; height: 12px; border-radius: 50%; background-color: green; margin-right: 5px;"></span>
+                    <span>All Nets Active</span>
+                </div>
+                <div>
+                    <span style="display: inline-block; width: 12px; height: 12px; border-radius: 50%; background-color: red; margin-right: 5px;"></span>
+                    <span>Has Lost Nets</span>
+                </div>
+            </div>
+            """)
+        m.get_root().html.add_child(legend)
         
-        folium.Circle(
-            location=[1.3733 + lat_offset, 32.2903 + lon_offset],
-            radius=radius,  # Adjust size for visibility
-            popup=f"""
+        # Add markers for each household
+        for idx, row in survey_df.iterrows():
+            # Count nets for this household
+            household_nets = len(campnets_df[campnets_df['hhid'] == row['hhid']])
+            household_lost = len(lostnets_df[lostnets_df['hhid'] == row['hhid']])
+            
+            # Create popup content
+            popup_content = f"""
+                <b>Household ID:</b> {row['hhid']}<br>
                 <b>District:</b> {row['selected_district']}<br>
-                <b>Total Households:</b> {int(row['total_households']):,}<br>
-                <b>Total Nets:</b> {int(row['total_nets']):,}<br>
-                <b>Coverage Ratio:</b> {row['coverage_ratio']:.2f}
-            """,
-            color='red',
-            fill=True,
-            fill_color='red',
-            fill_opacity=0.6,
-            tooltip=row['selected_district']  # Show district name on hover
-        ).add_to(m)
-    
-    # Add a legend
-    legend_html = """
-        <div style="position: fixed; bottom: 50px; left: 50px; z-index: 1000; background-color: white; 
-                    padding: 10px; border: 2px solid grey; border-radius: 5px">
-        <h4>Coverage Ratio</h4>
-        <p>Circle size indicates the ratio of<br>nets distributed to households</p>
-        <p>Hover over circles to see district names</p>
-        </div>
-    """
-    m.get_root().html.add_child(folium.Element(legend_html))
-    
-    # Display the map
-    folium_static(m)
+                <b>Subcounty:</b> {row['selected_subcounty']}<br>
+                <b>Village:</b> {row['selected_village']}<br>
+                <b>Nets Tagged:</b> {household_nets}<br>
+                <b>Nets Lost:</b> {household_lost}
+            """
+            
+            # Add marker with popup
+            folium.CircleMarker(
+                location=[row['latitude'], row['longitude']],
+                radius=8,
+                popup=popup_content,
+                color='red' if household_lost > 0 else 'green',
+                fill=True,
+                fill_color='red' if household_lost > 0 else 'green'
+            ).add_to(m)
+
+        # Add custom CSS to ensure legend visibility
+        css = """
+        <style>
+        .legend {
+            background-color: white;
+            padding: 10px;
+            position: fixed !important;
+            bottom: 20px !important;
+            right: 20px !important;
+            z-index: 9999 !important;
+            border: 2px solid rgba(0,0,0,0.2);
+            border-radius: 4px;
+            font-family: Arial, sans-serif;
+        }
+        </style>
+        """
+        m.get_root().html.add_child(folium.Element(css))
+        
+        # Display the map
+        folium_static(m)
+    except Exception as e:
+        st.error(f"Error processing GPS coordinates: {str(e)}")
 else:
-    st.warning("District data not available in the survey dataset")
+    st.warning("GPS location data not available in the survey dataset")
 
 # Malaria correlation if available
 if 'malaria_cases' in survey_df.columns:
