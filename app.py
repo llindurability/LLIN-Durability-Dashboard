@@ -7,7 +7,7 @@ from datetime import datetime
 import folium
 from streamlit_folium import folium_static
 import json
-import matplotlib.pyplot as plt
+import matplotlib as plt
 
 # Configure the page
 st.set_page_config(
