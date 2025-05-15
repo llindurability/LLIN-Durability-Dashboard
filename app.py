@@ -84,10 +84,9 @@ def filter_data(df):
     return df
 
 filtered_survey = filter_data(survey_df)
+total_households = len(filtered_survey)
 
 # Calculate metrics first
-total_households = len(filtered_survey)
-# Calculate unique villages based on combination of village and parish
 total_villages = filtered_survey.groupby(['selected_village', 'selected_parish']).ngroups
 total_campaign_nets = len(campnets_df[campnets_df['hhid'].isin(filtered_survey['hhid'])])
 total_lost_nets = len(lostnets_df[lostnets_df['hhid'].isin(filtered_survey['hhid'])])
@@ -465,38 +464,108 @@ if 'gpsloc' in survey_df.columns:
 else:
     st.warning("GPS location data not available in the survey dataset")
 
-# Malaria correlation if available
-if 'malaria_cases' in survey_df.columns:
-    st.subheader("Malaria Cases vs Net Distribution")
-    if 'hhnets' in survey_df.columns:
-        fig = px.scatter(
-            survey_df,
-            x='hhnets',
-            y='malaria_cases',
-            color='selected_district' if 'selected_district' in survey_df.columns else None,
-            title='Correlation between Net Distribution and Malaria Cases',
-            labels={
-                'hhnets': 'Nets Distributed',
-                'malaria_cases': 'Malaria Cases',
-                'selected_district': 'District'
-            }
-        )
-        st.plotly_chart(fig, use_container_width=True)
-    else:
-        st.warning("Net distribution data not available")
-else:
-    st.info("Malaria cases data not available in the dataset")
+st.markdown("---")
+st.header("Campaign Net Distribution Analysis")
 
-# Additional Information
-with st.expander("📊 Data Source and Methodology"):
-    st.markdown("""
-        ### Data Collection
-        - Household surveys were conducted across multiple villages
-        - GPS coordinates were collected for each household
-        - Data includes both distributed and lost nets
-        
-        ### Methodology
-        - Net coverage is calculated per household
-        - Lost nets include damaged, stolen, and given away nets
-        - Geographical distribution is mapped using actual GPS coordinates
-    """) 
+# Create a cross-tabulation of net counts
+filtered_campnets = campnets_df[campnets_df['hhid'].isin(filtered_survey['hhid'])]
+
+# Merge with survey data to get village and subcounty information
+net_distribution = pd.merge(
+    filtered_campnets,
+    filtered_survey[['hhid', 'selected_village', 'selected_subcounty', 'selected_district']],
+    on='hhid',
+    how='left'
+)
+
+# Create detailed frequency table
+st.subheader("Detailed Net Distribution by Location and Brand")
+net_freq_table = net_distribution.groupby(
+    ['brand', 'selected_district', 'selected_subcounty', 'selected_village']
+).size().reset_index(name='Net Count')
+
+st.dataframe(
+    net_freq_table.style.background_gradient(cmap='Blues', subset=['Net Count']),
+    use_container_width=True
+)
+
+# Create summary tables with totals
+st.subheader("Net Distribution Summary Tables")
+
+# 1. District-level summary
+district_summary = net_distribution.groupby(['selected_district', 'brand']).size().unstack(fill_value=0)
+district_summary.loc['Total'] = district_summary.sum()
+district_summary['Total'] = district_summary.sum(axis=1)
+
+st.markdown("#### Distribution by District")
+st.dataframe(
+    district_summary.style.background_gradient(cmap='Blues', subset=pd.IndexSlice[:, district_summary.columns != 'Total'])
+                          .format("{:,.0f}"),
+    use_container_width=True
+)
+
+# 2. Subcounty-level summary
+subcounty_summary = net_distribution.groupby(['selected_district', 'selected_subcounty', 'brand']).size().unstack(fill_value=0)
+subcounty_summary.loc['Total'] = subcounty_summary.sum()
+subcounty_summary['Total'] = subcounty_summary.sum(axis=1)
+
+st.markdown("#### Distribution by Subcounty")
+st.dataframe(
+    subcounty_summary.style.background_gradient(cmap='Blues', subset=pd.IndexSlice[:, subcounty_summary.columns != 'Total'])
+                            .format("{:,.0f}"),
+    use_container_width=True
+)
+
+# 3. Village-level summary
+village_summary = net_distribution.groupby(['selected_district', 'selected_subcounty', 'selected_village', 'brand']).size().unstack(fill_value=0)
+village_summary.loc['Total'] = village_summary.sum()
+village_summary['Total'] = village_summary.sum(axis=1)
+
+st.markdown("#### Distribution by Village")
+st.dataframe(
+    village_summary.style.background_gradient(cmap='Blues', subset=pd.IndexSlice[:, village_summary.columns != 'Total'])
+                         .format("{:,.0f}"),
+    use_container_width=True
+)
+
+# 4. Overall Brand Summary
+st.markdown("#### Overall Brand Distribution")
+brand_summary = pd.DataFrame({
+    'Net Count': net_distribution['brand'].value_counts(),
+    'Percentage': (net_distribution['brand'].value_counts(normalize=True) * 100).round(1)
+})
+brand_summary.loc['Total'] = [brand_summary['Net Count'].sum(), 100.0]
+
+st.dataframe(
+    brand_summary.style.background_gradient(cmap='Blues', subset=['Net Count'])
+                       .format({
+                           'Net Count': '{:,.0f}',
+                           'Percentage': '{:.1f}%'
+                       }),
+    use_container_width=True
+)
+
+# Add a bar chart showing distribution by subcounty and brand
+subcounty_brand_dist = net_distribution.groupby(['selected_subcounty', 'brand']).size().reset_index(name='Net Count')
+
+fig2 = px.bar(
+    subcounty_brand_dist,
+    x='selected_subcounty',
+    y='Net Count',
+    color='brand',
+    title='Net Distribution by Subcounty and Brand',
+    labels={
+        'selected_subcounty': 'Subcounty',
+        'Net Count': 'Number of Nets',
+        'brand': 'Brand'
+    }
+)
+fig2.update_layout(
+    xaxis_tickangle=-45,
+    barmode='group'
+)
+st.plotly_chart(fig2, use_container_width=True)
+
+st.markdown("---")
+
+# Map visualization continues below... 
